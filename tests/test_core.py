@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from propgraph_mcp.graph import TemporalPropGraph
 from propgraph_mcp.risk import GeospatialRiskEngine
 from propgraph_mcp.types import (

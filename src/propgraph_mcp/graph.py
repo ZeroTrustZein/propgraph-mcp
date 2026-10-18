@@ -217,16 +217,17 @@ class TemporalPropGraph:
     def normalize_entity_name(name: str) -> str:
         """Standardize corporate and entity names by removing punctuation and legal suffixes."""
         cleaned = name.lower().strip()
-        cleaned = re.sub(r"[,\.\-\']", " ", cleaned)
+        # Remove periods so L.L.C. -> llc, Inc. -> inc
+        cleaned = re.sub(r"\.", "", cleaned)
+        cleaned = re.sub(r"[,;:\-\']", " ", cleaned)
         suffixes = [
-            r"\bl\.?l\.?c\.?\b",
             r"\bllc\b",
+            r"\bllp\b",
+            r"\blp\b",
             r"\binc\b",
             r"\bincorporated\b",
             r"\bcorp\b",
             r"\bcorporation\b",
-            r"\bl\.?p\.?\b",
-            r"\blp\b",
             r"\bltd\b",
             r"\blimited\b",
             r"\bco\b",
@@ -266,7 +267,9 @@ class TemporalPropGraph:
             if i > 0:
                 prev_grantee = deeds[i - 1].get("grantee", "")
                 curr_grantor = deed.get("grantor", "")
-                if self.normalize_entity_name(prev_grantee) != self.normalize_entity_name(curr_grantor):
+                if self.normalize_entity_name(prev_grantee) != self.normalize_entity_name(
+                    curr_grantor
+                ):
                     breaks.append(
                         {
                             "deed_id": deed.get("deed_id"),
