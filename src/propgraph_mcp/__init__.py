@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from propgraph_mcp.graph import TemporalPropGraph
+from propgraph_mcp.risk import GeospatialRiskEngine
 from propgraph_mcp.types import (
     CashFlowYear,
     DCFScenario,
@@ -21,6 +23,7 @@ from propgraph_mcp.types import (
     UnderwritingSummary,
     ValuationOutput,
 )
+from propgraph_mcp.valuation import DCFValuationEngine, calculate_irr
 
 __version__ = "0.1.0"
 
@@ -28,10 +31,12 @@ __all__ = [
     "__version__",
     "CashFlowYear",
     "DCFScenario",
+    "DCFValuationEngine",
     "DeedRecord",
     "DocumentType",
     "EdgeType",
     "GeospatialRiskMetrics",
+    "GeospatialRiskEngine",
     "GraphEdge",
     "GraphNode",
     "NodeType",
@@ -41,6 +46,8 @@ __all__ = [
     "SECFilingRecord",
     "SECFilingType",
     "ScenarioType",
+    "TemporalPropGraph",
     "UnderwritingSummary",
     "ValuationOutput",
+    "calculate_irr",
 ]

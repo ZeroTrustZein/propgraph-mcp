@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import re
+from datetime import date
+from typing import Any, Dict, List, Optional
 
 import networkx as nx
 
@@ -115,6 +117,16 @@ class TemporalPropGraph:
             )
         )
 
+        # Edge: Deed conveys parcel
+        self.add_edge(
+            GraphEdge(
+                source_id=deed_node_id,
+                target_id=deed.parcel_id,
+                edge_type=EdgeType.TRANSFERRED_TO,
+                effective_date=deed.transfer_date,
+            )
+        )
+
     def add_sec_filing(self, filing: SECFilingRecord) -> None:
         filing_node_id = f"sec:{filing.accession_number}"
         self.add_node(
@@ -200,6 +212,205 @@ class TemporalPropGraph:
                     }
                 )
         return sorted(results, key=lambda x: x["distance"])
+
+    @staticmethod
+    def normalize_entity_name(name: str) -> str:
+        """Standardize corporate and entity names by removing punctuation and legal suffixes."""
+        cleaned = name.lower().strip()
+        cleaned = re.sub(r"[,\.\-\']", " ", cleaned)
+        suffixes = [
+            r"\bl\.?l\.?c\.?\b",
+            r"\bllc\b",
+            r"\binc\b",
+            r"\bincorporated\b",
+            r"\bcorp\b",
+            r"\bcorporation\b",
+            r"\bl\.?p\.?\b",
+            r"\blp\b",
+            r"\bltd\b",
+            r"\blimited\b",
+            r"\bco\b",
+            r"\bcompany\b",
+            r"\btrust\b",
+            r"\breit\b",
+        ]
+        for pattern in suffixes:
+            cleaned = re.sub(pattern, " ", cleaned)
+        return " ".join(cleaned.split())
+
+    def verify_chain_of_title(self, parcel_id: str) -> Dict[str, Any]:
+        """Validate unbroken chain of title and detect defects or gaps across deeds."""
+        deeds: List[Dict[str, Any]] = []
+        for _, data in self.graph.nodes(data=True):
+            if (
+                data.get("node_type") == NodeType.DEED.value
+                and data.get("attributes", {}).get("parcel_id") == parcel_id
+            ):
+                deeds.append(data.get("attributes", {}))
+
+        # Sort deeds chronologically
+        deeds.sort(key=lambda d: str(d.get("transfer_date", "")))
+
+        breaks: List[Dict[str, Any]] = []
+        warnings: List[str] = []
+        has_quitclaim = False
+
+        for i, deed in enumerate(deeds):
+            doc_type = str(deed.get("document_type", ""))
+            if "quitclaim" in doc_type.lower():
+                has_quitclaim = True
+                warnings.append(
+                    f"Deed {deed.get('deed_id')} is a Quitclaim Deed with no title warranty."
+                )
+
+            if i > 0:
+                prev_grantee = deeds[i - 1].get("grantee", "")
+                curr_grantor = deed.get("grantor", "")
+                if self.normalize_entity_name(prev_grantee) != self.normalize_entity_name(curr_grantor):
+                    breaks.append(
+                        {
+                            "deed_id": deed.get("deed_id"),
+                            "previous_grantee": prev_grantee,
+                            "current_grantor": curr_grantor,
+                            "transfer_date": deed.get("transfer_date"),
+                            "reason": "Grantor does not match prior grantee in chain of title.",
+                        }
+                    )
+
+        current_owner = deeds[-1].get("grantee") if deeds else None
+
+        return {
+            "parcel_id": parcel_id,
+            "is_valid": len(breaks) == 0,
+            "deed_count": len(deeds),
+            "current_owner": current_owner,
+            "breaks": breaks,
+            "has_quitclaim": has_quitclaim,
+            "warnings": warnings,
+        }
+
+    def get_ownership_at_date(self, parcel_id: str, as_of: date) -> Optional[Dict[str, Any]]:
+        """Determine verified property ownership as of a specific historical date."""
+        timeline = self.get_ownership_timeline(parcel_id)
+        as_of_str = as_of.isoformat()
+
+        # Timeline is sorted newest first; find the first entry on or before as_of
+        for entry in timeline:
+            eff = entry.get("effective_date")
+            if eff and str(eff) <= as_of_str:
+                return entry
+        return None
+
+    def get_entity_portfolio(self, entity_name: str) -> List[Dict[str, Any]]:
+        """Find all real estate assets owned or disclosed by a corporate entity."""
+        norm_target = self.normalize_entity_name(entity_name)
+        matched_entities = []
+
+        for n, data in self.graph.nodes(data=True):
+            if data.get("node_type") == NodeType.ENTITY.value:
+                label = data.get("label", "")
+                if self.normalize_entity_name(label) == norm_target:
+                    matched_entities.append(n)
+
+        portfolio: List[Dict[str, Any]] = []
+        seen_parcels = set()
+
+        for ent_id in matched_entities:
+            # Check direct property ownership
+            for _, target, edge_data in self.graph.out_edges(ent_id, data=True):
+                if edge_data.get("edge_type") == EdgeType.OWNS.value:
+                    if target not in seen_parcels:
+                        seen_parcels.add(target)
+                        portfolio.append(
+                            {
+                                "parcel_id": target,
+                                "relationship": "owns",
+                                "effective_date": edge_data.get("effective_date"),
+                                "sale_price": edge_data.get("attributes", {}).get("sale_price"),
+                            }
+                        )
+
+            # Check SEC filing disclosures
+            for _, sec_id, edge_data in self.graph.out_edges(ent_id, data=True):
+                if edge_data.get("edge_type") == EdgeType.DISCLOSED_IN.value:
+                    for _, prop_target, sec_edge_data in self.graph.out_edges(sec_id, data=True):
+                        if sec_edge_data.get("edge_type") == EdgeType.DISCLOSED_IN.value:
+                            if prop_target not in seen_parcels:
+                                seen_parcels.add(prop_target)
+                                portfolio.append(
+                                    {
+                                        "parcel_id": prop_target,
+                                        "relationship": "disclosed_in_sec",
+                                        "filing_id": sec_id,
+                                        "effective_date": sec_edge_data.get("effective_date"),
+                                    }
+                                )
+
+        return portfolio
+
+    def add_financing(
+        self,
+        lender_name: str,
+        parcel_id: str,
+        loan_amount: float,
+        recording_date: date,
+        maturity_date: Optional[date] = None,
+        loan_type: str = "Mortgage",
+    ) -> str:
+        """Attach a mortgage or deed of trust financing encumbrance to a property parcel."""
+        lender_id = f"lender:{self.normalize_entity_name(lender_name).replace(' ', '_')}"
+        if not self.graph.has_node(lender_id):
+            self.add_node(
+                GraphNode(
+                    node_id=lender_id,
+                    node_type=NodeType.LENDER,
+                    label=lender_name,
+                )
+            )
+
+        self.add_edge(
+            GraphEdge(
+                source_id=lender_id,
+                target_id=parcel_id,
+                edge_type=EdgeType.FINANCED_BY,
+                effective_date=recording_date,
+                attributes={
+                    "loan_amount": loan_amount,
+                    "maturity_date": maturity_date.isoformat() if maturity_date else None,
+                    "loan_type": loan_type,
+                    "status": "active",
+                },
+            )
+        )
+        return lender_id
+
+    def get_property_encumbrances(self, parcel_id: str) -> List[Dict[str, Any]]:
+        """Retrieve all active financing instruments and encumbrances on a property parcel."""
+        encumbrances: List[Dict[str, Any]] = []
+        if not self.graph.has_node(parcel_id):
+            return encumbrances
+
+        for u, _, edge_data in self.graph.in_edges(parcel_id, data=True):
+            if edge_data.get("edge_type") in [
+                EdgeType.FINANCED_BY.value,
+                EdgeType.ENCUMBERS.value,
+            ]:
+                lender_label = self.graph.nodes[u].get("label", u)
+                attrs = edge_data.get("attributes", {})
+                encumbrances.append(
+                    {
+                        "lender_id": u,
+                        "lender_name": lender_label,
+                        "loan_amount": attrs.get("loan_amount", 0.0),
+                        "loan_type": attrs.get("loan_type", "Mortgage"),
+                        "effective_date": edge_data.get("effective_date"),
+                        "maturity_date": attrs.get("maturity_date"),
+                        "status": attrs.get("status", "active"),
+                    }
+                )
+
+        encumbrances.sort(key=lambda x: str(x.get("effective_date", "")), reverse=True)
+        return encumbrances
 
     @property
     def node_count(self) -> int:
