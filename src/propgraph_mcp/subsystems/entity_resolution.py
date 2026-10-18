@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Set, Tuple
-
-import networkx as nx
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from propgraph_mcp.graph import TemporalPropGraph
-from propgraph_mcp.types import EdgeType, GraphEdge, NodeType
+from propgraph_mcp.types import EdgeType, NodeType
 
 
 def token_jaccard_similarity(str1: str, str2: str) -> float:

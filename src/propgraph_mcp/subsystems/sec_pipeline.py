@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from propgraph_mcp.graph import TemporalPropGraph
-from propgraph_mcp.types import EdgeType, GraphEdge, GraphNode, NodeType, SECFilingRecord, SECFilingType
+from propgraph_mcp.types import (
+    EdgeType,
+    GraphEdge,
+    SECFilingRecord,
+    SECFilingType,
+)
 
 
 class LeaseCommitmentSchedule(BaseModel):

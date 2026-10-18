@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -9,6 +10,13 @@ from mcp.server import MCPServer
 
 from propgraph_mcp.graph import TemporalPropGraph
 from propgraph_mcp.risk import GeospatialRiskEngine
+from propgraph_mcp.subsystems import (
+    DeedStreamValidator,
+    EncumbranceAnalyzer,
+    EntityResolver,
+    SECEdgarPipeline,
+    SpatialContiguityEngine,
+)
 from propgraph_mcp.types import (
     DCFScenario,
     DeedRecord,
@@ -26,6 +34,11 @@ def create_mcp_server(name: str = "propgraph-mcp") -> MCPServer:
     graph = TemporalPropGraph()
     valuation_engine = DCFValuationEngine()
     risk_engine = GeospatialRiskEngine()
+    deed_validator = DeedStreamValidator()
+    sec_pipeline = SECEdgarPipeline()
+    entity_resolver = EntityResolver()
+    encumbrance_analyzer = EncumbranceAnalyzer()
+    spatial_engine = SpatialContiguityEngine()
 
     @server.tool()
     def query_property_graph(apn: str, depth: int = 2) -> Dict[str, Any]:
@@ -218,5 +231,223 @@ def create_mcp_server(name: str = "propgraph-mcp") -> MCPServer:
             recommendation=rec,
         )
         return summary.model_dump()
+
+    @server.tool()
+    def validate_deed_stream(
+        records: List[Dict[str, Any]],
+        ingest_clean: bool = True,
+    ) -> Dict[str, Any]:
+        """Validate a batch of raw municipal deed records and optionally ingest clean records."""
+        clean_list, quar_list, summary = deed_validator.validate_batch(records)
+        ingested_count = 0
+        if ingest_clean and clean_list:
+            ingested_count = deed_validator.ingest_batch_to_graph(graph, clean_list)
+        return {
+            "summary": summary.model_dump(),
+            "ingested_into_graph": ingested_count,
+            "quarantined_samples": [q.model_dump() for q in quar_list[:5]],
+        }
+
+    @server.tool()
+    def parse_sec_disclosures(
+        accession_number: str,
+        cik: str,
+        company_name: str,
+        filing_type: str,
+        filing_date: str,
+        raw_text: str,
+        attach_to_knowledge_graph: bool = True,
+    ) -> Dict[str, Any]:
+        """Parse raw SEC EDGAR text for property holdings, lease schedules, and link to graph."""
+        parsed = sec_pipeline.parse_filing(
+            accession_number=accession_number,
+            cik=cik,
+            company_name=company_name,
+            filing_type=filing_type,
+            filing_date=date.fromisoformat(filing_date),
+            raw_text=raw_text,
+        )
+        graph_link = None
+        if attach_to_knowledge_graph:
+            graph_link = sec_pipeline.attach_to_graph(graph, parsed)
+
+        return {
+            "parsed_filing": parsed.model_dump(),
+            "graph_attachment": graph_link,
+        }
+
+    @server.tool()
+    def resolve_entity_network(
+        entity_name: str,
+        auto_merge_duplicates: bool = False,
+    ) -> Dict[str, Any]:
+        """Disambiguate corporate aliases and trace beneficial ownership in property graph."""
+        duplicates = entity_resolver.find_duplicate_entities(graph)
+        merged_count = 0
+        if auto_merge_duplicates:
+            for d in duplicates:
+                success = entity_resolver.merge_entities(
+                    graph, d["entity_id_1"], d["entity_id_2"]
+                )
+                if success:
+                    merged_count += 1
+
+        norm_name = TemporalPropGraph.normalize_entity_name(entity_name)
+        entity_id = f"entity:{norm_name.replace(' ', '_')}"
+        ubos = entity_resolver.trace_ultimate_beneficial_owners(graph, entity_id)
+        portfolio = graph.get_entity_portfolio(entity_name)
+
+        return {
+            "entity_name": entity_name,
+            "entity_id": entity_id,
+            "duplicate_candidates_found": len(duplicates),
+            "merged_count": merged_count,
+            "beneficial_owners": ubos,
+            "portfolio_assets": portfolio,
+        }
+
+    @server.tool()
+    def analyze_encumbrance_waterfall(
+        apn: str,
+        property_valuation: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Evaluate lien priority ranking, cumulative LTV, and cross-collateralized debts."""
+        waterfall = encumbrance_analyzer.analyze_parcel_encumbrance_waterfall(
+            graph, apn, property_valuation=property_valuation
+        )
+        cross_collateral = encumbrance_analyzer.detect_cross_collateralization(graph)
+        return {
+            "parcel_waterfall": waterfall,
+            "system_cross_collateralized_loans": cross_collateral,
+        }
+
+    @server.tool()
+    def analyze_spatial_assemblage(
+        max_distance_meters: float = 200.0,
+    ) -> Dict[str, Any]:
+        """Infer parcel spatial adjacency and find contiguous assemblage opportunities."""
+        adj_inferred = spatial_engine.infer_spatial_adjacencies(
+            graph, max_distance_meters=max_distance_meters
+        )
+        assemblages = spatial_engine.find_assemblage_clusters(
+            graph, max_distance_meters=max_distance_meters
+        )
+        return {
+            "adjacencies_inferred": adj_inferred,
+            "assemblages_found": assemblages,
+        }
+
+    @server.tool()
+    def get_chain_of_title(apn: str) -> Dict[str, Any]:
+        """Audit chain of title for breaks in ownership or quitclaim deed flags."""
+        chain = graph.get_chain_of_title(apn)
+        has_break = any(record.get("is_break_in_title", False) for record in chain)
+        quitclaims = [
+            record for record in chain if "Quitclaim" in record.get("document_type", "")
+        ]
+        return {
+            "apn": apn,
+            "chain_length": len(chain),
+            "has_break_in_title": has_break,
+            "quitclaim_count": len(quitclaims),
+            "chain_records": chain,
+        }
+
+    @server.tool()
+    def evaluate_zoning_capacity(
+        parcel_id: str,
+        lot_size_sqft: float,
+        building_footprint_sqft: float,
+        total_building_sqft: float,
+        stories: int,
+        building_height_ft: float,
+        zoning_code: str = "C-1",
+        parking_spaces: int = 50,
+    ) -> Dict[str, Any]:
+        """Evaluate zoning capacity, FAR utilization, and variance requirements."""
+        return risk_engine.evaluate_zoning_capacity(
+            parcel_id=parcel_id,
+            lot_size_sqft=lot_size_sqft,
+            building_footprint_sqft=building_footprint_sqft,
+            total_building_sqft=total_building_sqft,
+            stories=stories,
+            building_height_ft=building_height_ft,
+            zoning_code=zoning_code,
+            parking_spaces=parking_spaces,
+        )
+
+    @server.tool()
+    def project_climate_risk(
+        apn: str,
+        horizon_year: int = 2050,
+        rcp_scenario: str = "RCP8.5",
+    ) -> Dict[str, Any]:
+        """Project multi-decade climate and physical risk multipliers."""
+        return risk_engine.project_climate_risk(
+            parcel_id=apn,
+            horizon_year=horizon_year,
+            rcp_scenario=rcp_scenario,
+        )
+
+    @server.resource("graph://summary")
+    def graph_topology_summary() -> str:
+        """Read-only resource returning global graph topology and density metrics."""
+        return json.dumps(
+            {
+                "total_nodes": graph.node_count,
+                "total_edges": graph.edge_count,
+                "is_multigraph": True,
+            },
+            indent=2,
+        )
+
+    @server.resource("property://{apn}/timeline")
+    def property_timeline_resource(apn: str) -> str:
+        """Read-only resource returning chronological ownership timeline for an APN."""
+        timeline = graph.get_ownership_timeline(apn)
+        return json.dumps({"apn": apn, "timeline": timeline}, indent=2, default=str)
+
+    @server.resource("property://{apn}/encumbrances")
+    def property_encumbrances_resource(apn: str) -> str:
+        """Read-only resource returning debt and lien waterfall for an APN."""
+        waterfall = encumbrance_analyzer.analyze_parcel_encumbrance_waterfall(graph, apn)
+        return json.dumps({"apn": apn, "waterfall": waterfall}, indent=2, default=str)
+
+    @server.resource("property://{apn}/risk")
+    def property_risk_resource(apn: str) -> str:
+        """Read-only resource returning forward climate and geospatial risk projections."""
+        climate = risk_engine.project_climate_risk(apn)
+        return json.dumps({"apn": apn, "risk_projections": climate}, indent=2, default=str)
+
+    @server.prompt("underwrite-property")
+    def prompt_underwrite_property(apn: str) -> str:
+        """Prompt template for LLM autonomous underwriting evaluation."""
+        return (
+            f"You are a Senior CRE Underwriter evaluating parcel {apn}.\n"
+            f"1. Query the property graph for {apn} using `query_property_graph`.\n"
+            f"2. Audit chain-of-title integrity with `get_chain_of_title`.\n"
+            f"3. Run DCF valuation scenarios with `calculate_dcf_valuation`.\n"
+            f"4. Assess geospatial risk and zoning with `assess_geospatial_risk`.\n"
+            f"5. Check debt and lien waterfall with `analyze_encumbrance_waterfall`.\n"
+            f"Deliver an institutional investment committee memo with recommendation."
+        )
+
+    @server.prompt("audit-chain-of-title")
+    def prompt_audit_title(apn: str) -> str:
+        """Prompt template for legal title examination and deed continuity check."""
+        return (
+            f"Analyze the title history for parcel {apn}.\n"
+            f"Use `get_chain_of_title` to verify grantor-grantee lineage.\n"
+            f"Identify any quitclaim deeds, gaps in ownership dates, or missing releases."
+        )
+
+    @server.prompt("screen-encumbrances")
+    def prompt_screen_encumbrances(apn: str) -> str:
+        """Prompt template for debt waterfall and distressed lien assessment."""
+        return (
+            f"Examine all recorded mortgages, deeds of trust, and liens on parcel {apn}.\n"
+            f"Use `analyze_encumbrance_waterfall` to compute senior and cumulative LTV.\n"
+            f"Flag any subordinated debt or cross-collateralization."
+        )
 
     return server
