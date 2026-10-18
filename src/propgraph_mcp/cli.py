@@ -38,24 +38,39 @@ def _load_records_from_file(file_path: str) -> List[Dict[str, Any]]:
         raise click.ClickException(f"File not found: {file_path}")
 
     suffix = path.suffix.lower()
+    raw_list: List[Dict[str, Any]] = []
     if suffix == ".json":
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, list):
-                return data
-            if isinstance(data, dict):
+                raw_list = data
+            elif isinstance(data, dict):
                 for key in ("records", "deeds", "parcels", "data"):
                     if key in data and isinstance(data[key], list):
-                        return data[key]
-                return [data]
-            return []
+                        raw_list = data[key]
+                        break
+                else:
+                    raw_list = [data]
     elif suffix in (".csv", ".tsv"):
         delimiter = "\t" if suffix == ".tsv" else ","
         with open(path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f, delimiter=delimiter)
-            return list(reader)
+            raw_list = list(reader)
     else:
         raise click.ClickException(f"Unsupported file format '{suffix}'. Use .json, .csv, or .tsv.")
+
+    # Normalize common field aliases across deed/parcel streams
+    normalized: List[Dict[str, Any]] = []
+    for item in raw_list:
+        rec = dict(item)
+        if "sale_date" not in rec and "transfer_date" in rec:
+            rec["sale_date"] = rec["transfer_date"]
+        if "sale_price_raw" not in rec and "sale_price" in rec:
+            rec["sale_price_raw"] = rec["sale_price"]
+        if "deed_type" not in rec and "document_type" in rec:
+            rec["deed_type"] = rec["document_type"]
+        normalized.append(rec)
+    return normalized
 
 
 @click.group()
@@ -192,13 +207,11 @@ def validate_deeds(file_path: str, quarantine_out: Optional[str], json_output: b
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
 
-    table.add_row("Total Processed", str(summary.total_processed))
-    table.add_row("Clean Records", str(summary.clean_count))
-    table.add_row("Quarantined Records", str(summary.quarantined_count))
-    table.add_row("Pass Rate", f"{summary.pass_rate * 100:.1f}%")
-    table.add_row("Consideration Anomalies", str(summary.consideration_anomalies))
-    table.add_row("Date Anomalies", str(summary.date_anomalies))
-    table.add_row("Schema Violations", str(summary.schema_violations))
+    table.add_row("Total Processed", str(summary.total_records))
+    table.add_row("Clean Records", str(summary.clean_records))
+    table.add_row("Quarantined Records", str(summary.quarantined_records))
+    table.add_row("Total Dollar Volume", f"${summary.total_dollar_volume:,.0f}")
+    table.add_row("Arms-Length Count", str(summary.arms_length_count))
     console.print(table)
 
 
@@ -217,10 +230,12 @@ def chain_of_title(apn: str, file_path: Optional[str], json_output: bool) -> Non
         clean_list, _, _ = validator.validate_batch(records)
         validator.ingest_batch_to_graph(graph, clean_list)
 
-    chain = graph.get_chain_of_title(apn)
+    audit = graph.verify_chain_of_title(apn)
+    timeline = graph.get_ownership_timeline(apn)
 
     if json_output:
-        click.echo(json.dumps(chain, indent=2, default=str))
+        res = {"audit": audit, "timeline": timeline}
+        click.echo(json.dumps(res, indent=2, default=str))
         return
 
     table = Table(title=f"Chain of Title Audit: {apn}")
@@ -229,21 +244,20 @@ def chain_of_title(apn: str, file_path: Optional[str], json_output: bool) -> Non
     table.add_column("Grantee", style="white")
     table.add_column("Document", style="yellow")
     table.add_column("Price ($)", style="green")
-    table.add_column("Status", style="magenta")
 
-    for rec in chain:
-        status = "[red]Break in Title![/red]" if rec.get("is_break_in_title") else "[green]Valid[/green]"
-        if "Quitclaim" in rec.get("document_type", ""):
-            status += " [yellow](Quitclaim)[/yellow]"
+    for rec in timeline:
         table.add_row(
-            str(rec.get("transfer_date", "")),
+            str(rec.get("effective_date", "")),
             str(rec.get("grantor", "")),
             str(rec.get("grantee", "")),
             str(rec.get("document_type", "")),
             f"${rec.get('sale_price', 0.0):,.0f}",
-            status,
         )
     console.print(table)
+    is_valid_str = "[green]Valid unbroken chain[/green]" if audit.get("is_valid") else "[red]Break detected[/red]"
+    console.print(f"Chain Status: {is_valid_str} | Deeds: {audit.get('deed_count', 0)}")
+    for warn in audit.get("warnings", []):
+        console.print(f"[yellow]Warning: {warn}[/yellow]")
 
 
 @cli.command("risk-assess")
@@ -312,7 +326,7 @@ def risk_assess(
     table.add_row("Flood Hazard", f"{metrics.flood_hazard_score:.1f}")
     table.add_row("Seismic Exposure", f"{metrics.seismic_risk_score:.1f}")
     table.add_row("Environmental Contamination", f"{metrics.environmental_contamination_risk:.1f}")
-    table.add_row("Zoning Non-Compliance", f"{metrics.zoning_noncompliance_risk:.1f}")
+    table.add_row("Zoning Compliance Score", f"{metrics.zoning_compliance_score:.1f}")
     table.add_row(
         "[bold]Composite Risk Score[/bold]",
         f"[bold]{metrics.composite_risk_score:.1f}[/bold]",
@@ -336,54 +350,73 @@ def encumbrance(
 ) -> None:
     """Analyze parcel lien priority waterfall and cumulative loan-to-value (LTV)."""
     graph = TemporalPropGraph()
+    if not graph.graph.has_node(apn):
+        parcel = PropertyParcel(
+            apn=apn,
+            address="Underwritten Asset",
+            city="City",
+            state="CA",
+            zip_code="00000",
+            property_type=PropertyType.OFFICE,
+            square_feet=50_000.0,
+            year_built=2000,
+        )
+        graph.add_property(parcel)
+
     if file_path:
         records = _load_records_from_file(file_path)
-        for rec in records:
-            from propgraph_mcp.types import EncumbranceRecord, EncumbranceType
+        from propgraph_mcp.types import EdgeType, GraphEdge
 
-            enc = EncumbranceRecord(
-                encumbrance_id=rec["encumbrance_id"],
-                parcel_id=rec.get("parcel_id", apn),
-                encumbrance_type=EncumbranceType(rec["encumbrance_type"]),
-                amount=float(rec["amount"]),
-                lender=rec["lender"],
-                recording_date=date.fromisoformat(str(rec["recording_date"])),
-                seniority_rank=int(rec.get("seniority_rank", 1)),
+        for rec in records:
+            inst = str(rec.get("instrument") or rec.get("encumbrance_type") or "mortgage")
+            amt = float(rec.get("amount") or rec.get("principal_amount") or 0.0)
+            lender = str(rec.get("lender") or "lender_default")
+            lender_id = f"lender:{lender.lower().replace(' ', '_')}"
+            graph.add_edge(
+                GraphEdge(
+                    source_id=lender_id,
+                    target_id=apn,
+                    edge_type=EdgeType.ENCUMBERS,
+                    effective_date=date.fromisoformat(str(rec.get("recording_date", "2020-01-01"))),
+                    attributes={"instrument": inst, "amount": amt, "lender": lender},
+                )
             )
-            graph.add_encumbrance(enc)
 
     analyzer = EncumbranceAnalyzer()
-    waterfall = analyzer.analyze_parcel_encumbrance_waterfall(
+    waterfall_res = analyzer.analyze_parcel_encumbrance_waterfall(
         graph, apn, property_valuation=valuation
     )
 
     if json_output:
-        click.echo(json.dumps(waterfall, indent=2, default=str))
+        click.echo(json.dumps(waterfall_res, indent=2, default=str))
         return
 
     table = Table(title=f"Lien Priority Waterfall: {apn}")
     table.add_column("Rank", style="cyan")
-    table.add_column("Type", style="white")
+    table.add_column("Instrument", style="white")
     table.add_column("Lender", style="white")
     table.add_column("Amount ($)", style="yellow")
     table.add_column("Cumulative ($)", style="green")
-    table.add_column("Cumul LTV (%)", style="magenta")
+    table.add_column("Recovery (%)", style="magenta")
 
-    for lien in waterfall.get("liens", []):
-        ltv_str = f"{lien['cumulative_ltv'] * 100:.1f}%" if lien.get("cumulative_ltv") else "N/A"
+    for lien in waterfall_res.get("waterfall", []):
+        rec_pct = lien.get("recovery_percentage")
+        rec_str = f"{rec_pct * 100:.1f}%" if rec_pct is not None else "100.0%"
         table.add_row(
             str(lien.get("seniority_rank", "-")),
-            str(lien.get("encumbrance_type", "-")),
-            str(lien.get("lender", "-")),
+            str(lien.get("instrument", "-")),
+            str(lien.get("lender") or lien.get("source_id", "-")),
             f"${lien.get('amount', 0.0):,.0f}",
-            f"${lien.get('cumulative_amount', 0.0):,.0f}",
-            ltv_str,
+            f"${lien.get('cumulative_debt', 0.0):,.0f}",
+            rec_str,
         )
     console.print(table)
+    overall_ltv = waterfall_res.get("overall_ltv")
+    ltv_disp = f"{overall_ltv * 100:.1f}%" if overall_ltv is not None else "N/A"
     console.print(
-        f"Total Debt: [bold yellow]${waterfall.get('total_debt', 0.0):,.0f}[/bold yellow] | "
-        f"Senior Debt: [bold cyan]${waterfall.get('senior_debt', 0.0):,.0f}[/bold cyan] | "
-        f"Total LTV: [bold green]{waterfall.get('total_ltv', 0.0) * 100:.1f}%[/bold green]"
+        f"Total Debt: [bold yellow]${waterfall_res.get('total_debt', 0.0):,.0f}[/bold yellow] | "
+        f"Overall LTV: [bold green]{ltv_disp}[/bold green] | "
+        f"Remaining Equity: [bold cyan]${waterfall_res.get('remaining_equity', 0.0):,.0f}[/bold cyan]"
     )
 
 
@@ -401,9 +434,12 @@ def assemblage(file_path: str, distance: float, json_output: bool) -> None:
     """Identify contiguous parcel assemblage opportunities."""
     records = _load_records_from_file(file_path)
     graph = TemporalPropGraph()
+    from propgraph_mcp.types import EdgeType, GraphEdge
+
     for rec in records:
+        apn = rec["apn"]
         parcel = PropertyParcel(
-            apn=rec["apn"],
+            apn=apn,
             address=rec.get("address", "Unknown"),
             city=rec.get("city", "City"),
             state=rec.get("state", "CA"),
@@ -415,6 +451,8 @@ def assemblage(file_path: str, distance: float, json_output: bool) -> None:
             longitude=float(rec.get("longitude", 0.0)),
         )
         graph.add_property(parcel)
+        owner = rec.get("owner", "entity:common_owner")
+        graph.add_edge(GraphEdge(source_id=owner, target_id=apn, edge_type=EdgeType.OWNS))
 
     spatial_engine = SpatialContiguityEngine()
     clusters = spatial_engine.find_assemblage_clusters(graph, max_distance_meters=distance)
@@ -424,19 +462,19 @@ def assemblage(file_path: str, distance: float, json_output: bool) -> None:
         return
 
     table = Table(title=f"Contiguous Parcel Assemblages (<= {distance:.0f}m)")
-    table.add_column("Cluster", style="cyan")
+    table.add_column("Owner", style="cyan")
     table.add_column("Parcels", style="white")
     table.add_column("Count", style="yellow")
     table.add_column("Total SqFt", style="green")
-    table.add_column("Total Acres", style="magenta")
+    table.add_column("Density Uplift", style="magenta")
 
     for cluster in clusters:
         table.add_row(
-            str(cluster.get("cluster_id")),
+            str(cluster.get("owner_entity")),
             ", ".join(cluster.get("parcels", [])),
             str(cluster.get("parcel_count")),
-            f"{cluster.get('total_square_feet', 0.0):,.0f}",
-            f"{cluster.get('total_acreage', 0.0):.2f}",
+            f"{cluster.get('combined_square_feet', 0.0):,.0f}",
+            f"{cluster.get('estimated_density_uplift', 0.0):,.0f}",
         )
     console.print(table)
 

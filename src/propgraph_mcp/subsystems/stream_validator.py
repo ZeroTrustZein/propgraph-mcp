@@ -62,6 +62,38 @@ class ValidationBatchResult(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
+    @property
+    def total_processed(self) -> int:
+        return self.total_records
+
+    @property
+    def clean_count(self) -> int:
+        return self.clean_records
+
+    @property
+    def quarantined_count(self) -> int:
+        return self.quarantined_records
+
+    @property
+    def pass_rate(self) -> float:
+        return self.clean_records / self.total_records if self.total_records > 0 else 1.0
+
+    @property
+    def consideration_anomalies(self) -> int:
+        return self.quarantine_breakdown.get("INVALID_PRICE", 0) + self.quarantine_breakdown.get(
+            "OUTLIER_PRICE", 0
+        )
+
+    @property
+    def date_anomalies(self) -> int:
+        return self.quarantine_breakdown.get("INVALID_DATE", 0)
+
+    @property
+    def schema_violations(self) -> int:
+        return self.quarantine_breakdown.get(
+            "MISSING_PARCEL_ID", 0
+        ) + self.quarantine_breakdown.get("MISSING_PARTIES", 0)
+
 
 class DeedStreamValidator:
     """Validates, sanitizes, and streams raw municipal recorder exports into clean deed records."""
@@ -185,7 +217,7 @@ WHERE grantor IS NOT NULL AND TRIM(grantor) <> ''
             if isinstance(record, RawDeedRecord)
             else dict(record)
         )
-        raw_id = str(payload.get("raw_id") or "")
+        raw_id = str(payload.get("raw_id") or payload.get("deed_id") or "")
         parcel_id = str(payload.get("parcel_id") or "").strip()
         grantor = str(payload.get("grantor") or "").strip()
         grantee = str(payload.get("grantee") or "").strip()
@@ -208,23 +240,29 @@ WHERE grantor IS NOT NULL AND TRIM(grantor) <> ''
                 raw_payload=payload,
             )
 
-        parsed_date = self.parse_date(payload.get("sale_date"))
+        raw_date_val = payload.get("sale_date") or payload.get("transfer_date")
+        parsed_date = self.parse_date(raw_date_val)
         if not parsed_date:
             return None, QuarantineRecord(
                 raw_id=raw_id or None,
                 parcel_id=parcel_id,
                 error_code="INVALID_DATE",
-                error_reason=f"Cannot parse transfer date: {payload.get('sale_date')}",
+                error_reason=f"Cannot parse transfer date: {raw_date_val}",
                 raw_payload=payload,
             )
 
-        price = self.parse_price(payload.get("sale_price_raw"))
+        raw_price_val = (
+            payload.get("sale_price_raw")
+            if "sale_price_raw" in payload
+            else payload.get("sale_price")
+        )
+        price = self.parse_price(raw_price_val)
         if price is None or price < 0.0:
             return None, QuarantineRecord(
                 raw_id=raw_id or None,
                 parcel_id=parcel_id,
                 error_code="INVALID_PRICE",
-                error_reason=f"Invalid sale price value: {payload.get('sale_price_raw')}",
+                error_reason=f"Invalid sale price value: {raw_price_val}",
                 raw_payload=payload,
             )
 
@@ -237,7 +275,9 @@ WHERE grantor IS NOT NULL AND TRIM(grantor) <> ''
                 raw_payload=payload,
             )
 
-        deed_type = str(payload.get("deed_type") or "Warranty Deed").strip()
+        deed_type = str(
+            payload.get("deed_type") or payload.get("document_type") or "Warranty Deed"
+        ).strip()
         is_arms_length = (
             price >= self.min_arms_length_price
             and "quitclaim" not in deed_type.lower()

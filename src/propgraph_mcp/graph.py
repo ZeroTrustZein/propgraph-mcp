@@ -11,6 +11,7 @@ import networkx as nx
 from propgraph_mcp.types import (
     DeedRecord,
     EdgeType,
+    EncumbranceRecord,
     GraphEdge,
     GraphNode,
     NodeType,
@@ -414,6 +415,109 @@ class TemporalPropGraph:
 
         encumbrances.sort(key=lambda x: str(x.get("effective_date", "")), reverse=True)
         return encumbrances
+
+    def get_chain_of_title(self, parcel_id: str) -> List[Dict[str, Any]]:
+        """Return chronological deed history with break-in-title detection for each transfer."""
+        deeds: List[Dict[str, Any]] = []
+        for _, data in self.graph.nodes(data=True):
+            if (
+                data.get("node_type") == NodeType.DEED.value
+                and data.get("attributes", {}).get("parcel_id") == parcel_id
+            ):
+                deeds.append(dict(data.get("attributes", {})))
+
+        deeds.sort(key=lambda d: str(d.get("transfer_date", "")))
+        result: List[Dict[str, Any]] = []
+
+        for i, deed in enumerate(deeds):
+            is_break = False
+            break_reason = None
+            if i > 0:
+                prev_grantee = deeds[i - 1].get("grantee", "")
+                curr_grantor = deed.get("grantor", "")
+                if self.normalize_entity_name(prev_grantee) != self.normalize_entity_name(
+                    curr_grantor
+                ):
+                    is_break = True
+                    break_reason = (
+                        f"Grantor '{curr_grantor}' does not match prior grantee '{prev_grantee}'"
+                    )
+
+            result.append(
+                {
+                    "deed_id": deed.get("deed_id"),
+                    "parcel_id": parcel_id,
+                    "grantor": deed.get("grantor"),
+                    "grantee": deed.get("grantee"),
+                    "transfer_date": deed.get("transfer_date"),
+                    "sale_price": deed.get("sale_price"),
+                    "document_type": deed.get("document_type"),
+                    "recording_number": deed.get("recording_number"),
+                    "is_break_in_title": is_break,
+                    "break_reason": break_reason,
+                }
+            )
+        return result
+
+    def add_encumbrance(self, enc: EncumbranceRecord) -> None:
+        """Attach a formal EncumbranceRecord to a parcel in the graph."""
+        enc_type_val = (
+            enc.encumbrance_type.value
+            if hasattr(enc.encumbrance_type, "value")
+            else str(enc.encumbrance_type)
+        )
+        lender_id = f"lender:{self.normalize_entity_name(enc.lender).replace(' ', '_')}"
+        if not self.graph.has_node(lender_id):
+            self.add_node(
+                GraphNode(
+                    node_id=lender_id,
+                    node_type=NodeType.LENDER,
+                    label=enc.lender,
+                )
+            )
+        self.add_edge(
+            GraphEdge(
+                source_id=lender_id,
+                target_id=enc.parcel_id,
+                edge_type=EdgeType.ENCUMBERS,
+                effective_date=enc.recording_date,
+                attributes={
+                    "encumbrance_id": enc.encumbrance_id,
+                    "instrument": enc_type_val,
+                    "amount": enc.amount,
+                    "principal_amount": enc.amount,
+                    "lender": enc.lender,
+                    "seniority_rank": enc.seniority_rank,
+                },
+            )
+        )
+
+    def export_geojson(self) -> Dict[str, Any]:
+        """Export parcel nodes as GeoJSON FeatureCollection."""
+        features: List[Dict[str, Any]] = []
+        for node_id, data in self.graph.nodes(data=True):
+            if data.get("node_type") == NodeType.PROPERTY.value:
+                attrs = data.get("attributes", {})
+                lat = attrs.get("latitude")
+                lon = attrs.get("longitude")
+                if lat is not None and lon is not None:
+                    features.append(
+                        {
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [float(lon), float(lat)],
+                            },
+                            "properties": {
+                                "apn": node_id,
+                                **attrs,
+                            },
+                        }
+                    )
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+        }
 
     @property
     def node_count(self) -> int:

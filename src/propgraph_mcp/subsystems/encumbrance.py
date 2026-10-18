@@ -128,6 +128,7 @@ class EncumbranceAnalyzer:
             "total_encumbrances": len(liens),
             "total_debt": round(total_debt, 2),
             "overall_ltv": ltv,
+            "total_ltv": ltv,
             "remaining_equity": round(remaining_equity, 2) if remaining_equity is not None else None,
             "has_senior_tax_lien": any(x["seniority_rank"] == 1 for x in liens),
             "waterfall": waterfall,

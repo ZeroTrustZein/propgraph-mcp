@@ -29,6 +29,18 @@ class DocumentType(str, Enum):
     MORTGAGE = "Mortgage"
 
 
+class EncumbranceType(str, Enum):
+    """Common real property encumbrance and lien classifications."""
+    FIRST_MORTGAGE = "First Mortgage"
+    SECOND_MORTGAGE = "Second Mortgage"
+    MEZZANINE_LOAN = "Mezzanine Loan"
+    TAX_LIEN = "Tax Lien"
+    MECHANICS_LIEN = "Mechanics Lien"
+    UCC_FILING = "UCC Filing"
+    EASEMENT = "Easement"
+    COVENANT = "Covenant"
+
+
 class SECFilingType(str, Enum):
     """SEC EDGAR corporate filing classifications."""
     FORM_10K = "10-K"
@@ -76,6 +88,17 @@ class DeedRecord(BaseModel):
     sale_price: float = Field(ge=0.0)
     document_type: str = DocumentType.WARRANTY_DEED.value
     recording_number: Optional[str] = None
+
+
+class EncumbranceRecord(BaseModel):
+    """Real estate lien, mortgage, or deed of trust encumbrance."""
+    encumbrance_id: str = Field(..., min_length=1)
+    parcel_id: str = Field(..., min_length=1)
+    encumbrance_type: EncumbranceType | str
+    amount: float = Field(..., ge=0.0)
+    lender: str = Field(..., min_length=1)
+    recording_date: date
+    seniority_rank: int = 1
 
 
 class SECFilingRecord(BaseModel):
@@ -179,6 +202,11 @@ class GeospatialRiskMetrics(BaseModel):
     composite_risk_score: float = Field(0.0, ge=0.0, le=100.0)
 
     @property
+    def zoning_noncompliance_risk(self) -> float:
+        """Derived zoning noncompliance risk score."""
+        return round(100.0 - self.zoning_compliance_score, 2)
+
+    @property
     def risk_tier(self) -> RiskTier:
         """Derive qualitative risk tier from composite score."""
         if self.composite_risk_score >= 75.0:
@@ -206,6 +234,8 @@ __all__ = [
     "DeedRecord",
     "DocumentType",
     "EdgeType",
+    "EncumbranceRecord",
+    "EncumbranceType",
     "GeospatialRiskMetrics",
     "GraphEdge",
     "GraphNode",

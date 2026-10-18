@@ -39,6 +39,8 @@ class GeospatialRiskEngine:
                 flood_score = 85.0
             elif "X500" in fz or "B" in fz:
                 flood_score = 45.0
+            elif fz == "X":
+                flood_score = 10.0
             else:
                 flood_score = 15.0
 
@@ -49,6 +51,10 @@ class GeospatialRiskEngine:
                 seismic_score = 80.0
             elif seismic_zone == 3:
                 seismic_score = 50.0
+            elif seismic_zone == 2:
+                seismic_score = 25.0
+            elif seismic_zone <= 1:
+                seismic_score = 10.0
             else:
                 seismic_score = 15.0
 
