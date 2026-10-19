@@ -11,9 +11,7 @@ from propgraph_mcp.graph import TemporalPropGraph
 from propgraph_mcp.types import EdgeType, GraphEdge, NodeType, PropertyParcel
 
 
-def haversine_distance_meters(
-    lat1: float, lon1: float, lat2: float, lon2: float
-) -> float:
+def haversine_distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Compute great-circle distance between two WGS84 coordinates in meters."""
     earth_radius_m = 6371000.0  # Earth radius in meters
 
@@ -25,17 +23,12 @@ def haversine_distance_meters(
     dlat = rlat2 - rlat1
     dlon = rlon2 - rlon1
 
-    a = (
-        math.sin(dlat / 2.0) ** 2
-        + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2.0) ** 2
-    )
+    a = math.sin(dlat / 2.0) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2.0) ** 2
     c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
     return earth_radius_m * c
 
 
-def haversine_distance_feet(
-    lat1: float, lon1: float, lat2: float, lon2: float
-) -> float:
+def haversine_distance_feet(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Compute great-circle distance between two WGS84 coordinates in feet."""
     return haversine_distance_meters(lat1, lon1, lat2, lon2) * 3.28084
 
@@ -112,28 +105,18 @@ class SpatialContiguityEngine:
                 lon = attrs.get("longitude")
                 sqft = float(attrs.get("square_feet") or 0.0)
 
-                # Determine current owner from graph
-                owner = None
-                for u, _, edata in graph.graph.in_edges(node_id, data=True):
-                    if edata.get("edge_type") == EdgeType.OWNS.value:
-                        owner = u
-                        break
+                # Determine current owner from parcel attribute or graph edge
+                owner = attrs.get("owner")
+                if not owner:
+                    for u, _, edata in graph.graph.in_edges(node_id, data=True):
+                        if edata.get("edge_type") == EdgeType.OWNS.value:
+                            owner = u
+                            break
+                if not owner:
+                    owner = "common_assemblage"
 
-                if owner and lat is not None and lon is not None:
+                if lat is not None and lon is not None:
                     owner_parcels.setdefault(owner, []).append((node_id, lat, lon, sqft))
-
-        if not owner_parcels:
-            unowned: List[Tuple[str, float, float, float]] = []
-            for node_id, data in graph.graph.nodes(data=True):
-                if data.get("node_type") == NodeType.PROPERTY.value:
-                    attrs = data.get("attributes", {})
-                    lat = attrs.get("latitude")
-                    lon = attrs.get("longitude")
-                    sqft = float(attrs.get("square_feet") or 0.0)
-                    if lat is not None and lon is not None:
-                        unowned.append((node_id, lat, lon, sqft))
-            if len(unowned) >= 2:
-                owner_parcels["common_assemblage"] = unowned
 
         assemblages: List[Dict[str, Any]] = []
 
@@ -159,9 +142,7 @@ class SpatialContiguityEngine:
             for comp in nx.connected_components(adj_graph):
                 if len(comp) >= 2:
                     cluster_parcels = list(comp)
-                    total_sqft = sum(
-                        adj_graph.nodes[p]["sqft"] for p in cluster_parcels
-                    )
+                    total_sqft = sum(adj_graph.nodes[p]["sqft"] for p in cluster_parcels)
                     assemblages.append(
                         {
                             "owner_entity": owner,
@@ -169,16 +150,16 @@ class SpatialContiguityEngine:
                             "parcels": cluster_parcels,
                             "combined_square_feet": total_sqft,
                             "assemblage_bonus_rate": assemblage_bonus_rate,
-                            "estimated_density_uplift": round(total_sqft * assemblage_bonus_rate, 2),
+                            "estimated_density_uplift": round(
+                                total_sqft * assemblage_bonus_rate, 2
+                            ),
                         }
                     )
 
         return assemblages
 
     @staticmethod
-    def calculate_bounding_box(
-        parcels: List[PropertyParcel | Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def calculate_bounding_box(parcels: List[PropertyParcel | Dict[str, Any]]) -> Dict[str, Any]:
         """Compute minimum bounding box and geographic centroid across parcels."""
         lats: List[float] = []
         lons: List[float] = []

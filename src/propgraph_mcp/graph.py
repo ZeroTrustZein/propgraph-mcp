@@ -240,19 +240,22 @@ class TemporalPropGraph:
             cleaned = re.sub(pattern, " ", cleaned)
         return " ".join(cleaned.split())
 
-    def verify_chain_of_title(self, parcel_id: str) -> Dict[str, Any]:
-        """Validate unbroken chain of title and detect defects or gaps across deeds."""
-        deeds: List[Dict[str, Any]] = []
-        for _, data in self.graph.nodes(data=True):
+    def get_deeds_for_parcel(self, parcel_id: str) -> List[Dict[str, Any]]:
+        """Return chronologically sorted list of deed attributes for a parcel."""
+        deeds = [
+            dict(data.get("attributes", {}))
+            for _, data in self.graph.nodes(data=True)
             if (
                 data.get("node_type") == NodeType.DEED.value
                 and data.get("attributes", {}).get("parcel_id") == parcel_id
-            ):
-                deeds.append(data.get("attributes", {}))
-
-        # Sort deeds chronologically
+            )
+        ]
         deeds.sort(key=lambda d: str(d.get("transfer_date", "")))
+        return deeds
 
+    def verify_chain_of_title(self, parcel_id: str) -> Dict[str, Any]:
+        """Validate unbroken chain of title and detect defects or gaps across deeds."""
+        deeds = self.get_deeds_for_parcel(parcel_id)
         breaks: List[Dict[str, Any]] = []
         warnings: List[str] = []
         has_quitclaim = False
@@ -418,15 +421,7 @@ class TemporalPropGraph:
 
     def get_chain_of_title(self, parcel_id: str) -> List[Dict[str, Any]]:
         """Return chronological deed history with break-in-title detection for each transfer."""
-        deeds: List[Dict[str, Any]] = []
-        for _, data in self.graph.nodes(data=True):
-            if (
-                data.get("node_type") == NodeType.DEED.value
-                and data.get("attributes", {}).get("parcel_id") == parcel_id
-            ):
-                deeds.append(dict(data.get("attributes", {})))
-
-        deeds.sort(key=lambda d: str(d.get("transfer_date", "")))
+        deeds = self.get_deeds_for_parcel(parcel_id)
         result: List[Dict[str, Any]] = []
 
         for i, deed in enumerate(deeds):

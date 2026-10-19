@@ -286,9 +286,7 @@ def create_mcp_server(name: str = "propgraph-mcp") -> MCPServer:
         merged_count = 0
         if auto_merge_duplicates:
             for d in duplicates:
-                success = entity_resolver.merge_entities(
-                    graph, d["entity_id_1"], d["entity_id_2"]
-                )
+                success = entity_resolver.merge_entities(graph, d["entity_id_1"], d["entity_id_2"])
                 if success:
                     merged_count += 1
 
@@ -409,6 +407,7 @@ def create_mcp_server(name: str = "propgraph-mcp") -> MCPServer:
             horizon_years=hy,
         )
         res["horizon_year"] = hy
+        res["horizon_years"] = hy
         res["rcp_scenario"] = rcp_scenario
         return res
 

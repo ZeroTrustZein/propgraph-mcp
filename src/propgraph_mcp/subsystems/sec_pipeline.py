@@ -33,14 +33,7 @@ class LeaseCommitmentSchedule(BaseModel):
     @property
     def total_commitment(self) -> float:
         """Total undiscounted contractual lease obligations."""
-        return (
-            self.year_1
-            + self.year_2
-            + self.year_3
-            + self.year_4
-            + self.year_5
-            + self.thereafter
-        )
+        return self.year_1 + self.year_2 + self.year_3 + self.year_4 + self.year_5 + self.thereafter
 
 
 class ParsedSECFiling(BaseModel):
@@ -63,7 +56,9 @@ class SECEdgarPipeline:
     def extract_apns_from_text(text: str) -> List[str]:
         """Extract Assessor Parcel Numbers (APNs) or parcel identifiers from text."""
         # Patterns like APN 123-456-78, APN-102-55, Parcel 999-00-11
-        pattern = r"\b(?:APN|Parcel|APN#|PIN)[\s:-]*([A-Z0-9]{2,5}-[A-Z0-9]{2,5}(?:-[A-Z0-9]{2,5})?)\b"
+        pattern = (
+            r"\b(?:APN|Parcel|APN#|PIN)[\s:-]*([A-Z0-9]{2,5}-[A-Z0-9]{2,5}(?:-[A-Z0-9]{2,5})?)\b"
+        )
         matches = re.findall(pattern, text, re.IGNORECASE)
         # Also direct matches like APN-102-55
         raw_direct = re.findall(r"\bAPN-[0-9A-Z]+-[0-9A-Z]+(?:-[0-9A-Z]+)?\b", text)
@@ -157,9 +152,7 @@ class SECEdgarPipeline:
             raw_excerpts=excerpts,
         )
 
-    def attach_to_graph(
-        self, graph: TemporalPropGraph, filing: ParsedSECFiling
-    ) -> Dict[str, Any]:
+    def attach_to_graph(self, graph: TemporalPropGraph, filing: ParsedSECFiling) -> Dict[str, Any]:
         """Link parsed SEC filing and lease schedules to property graph."""
         # Convert to SECFilingRecord
         lease_dict: Dict[str, float] = {}

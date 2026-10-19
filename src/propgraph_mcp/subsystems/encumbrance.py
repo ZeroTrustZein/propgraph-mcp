@@ -129,14 +129,14 @@ class EncumbranceAnalyzer:
             "total_debt": round(total_debt, 2),
             "overall_ltv": ltv,
             "total_ltv": ltv,
-            "remaining_equity": round(remaining_equity, 2) if remaining_equity is not None else None,
+            "remaining_equity": round(remaining_equity, 2)
+            if remaining_equity is not None
+            else None,
             "has_senior_tax_lien": any(x["seniority_rank"] == 1 for x in liens),
             "waterfall": waterfall,
         }
 
-    def detect_cross_collateralization(
-        self, graph: TemporalPropGraph
-    ) -> List[Dict[str, Any]]:
+    def detect_cross_collateralization(self, graph: TemporalPropGraph) -> List[Dict[str, Any]]:
         """Identify blanket mortgages or lenders cross-collateralized across multiple properties."""
         lender_parcels: Dict[str, List[Dict[str, Any]]] = {}
 

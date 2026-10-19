@@ -232,18 +232,7 @@ def chain_of_title(apn: str, file_path: Optional[str], json_output: bool) -> Non
 
     audit = graph.verify_chain_of_title(apn)
     timeline = graph.get_ownership_timeline(apn)
-
-    # Collect deeds associated with this parcel
-    deeds: List[Dict[str, Any]] = []
-    from propgraph_mcp.types import NodeType
-
-    for _, data in graph.graph.nodes(data=True):
-        if (
-            data.get("node_type") == NodeType.DEED.value
-            and data.get("attributes", {}).get("parcel_id") == apn
-        ):
-            deeds.append(data.get("attributes", {}))
-    deeds.sort(key=lambda d: str(d.get("transfer_date", "")))
+    deeds = graph.get_deeds_for_parcel(apn)
 
     if json_output:
         res = {"audit": audit, "timeline": timeline, "deeds": deeds}
@@ -272,7 +261,11 @@ def chain_of_title(apn: str, file_path: Optional[str], json_output: bool) -> Non
             f"${float(price):,.0f}",
         )
     console.print(table)
-    is_valid_str = "[green]Valid unbroken chain[/green]" if audit.get("is_valid") else "[red]Break detected[/red]"
+    is_valid_str = (
+        "[green]Valid unbroken chain[/green]"
+        if audit.get("is_valid")
+        else "[red]Break detected[/red]"
+    )
     console.print(f"Chain Status: {is_valid_str} | Deeds: {audit.get('deed_count', 0)}")
     for warn in audit.get("warnings", []):
         console.print(f"[yellow]Warning: {warn}[/yellow]")
@@ -355,9 +348,7 @@ def risk_assess(
 
 @cli.command("encumbrance")
 @click.option("--apn", required=True, help="Assessor parcel number.")
-@click.option(
-    "--file", "-f", "file_path", default=None, help="Path to encumbrance JSON file."
-)
+@click.option("--file", "-f", "file_path", default=None, help="Path to encumbrance JSON file.")
 @click.option("--valuation", "-v", default=None, type=float, help="Property valuation for LTV.")
 @click.option("--json-output", is_flag=True, help="Output waterfall in JSON format.")
 def encumbrance(
@@ -503,9 +494,7 @@ def assemblage(file_path: str, distance: float, json_output: bool) -> None:
     default=None,
     help="Comma-separated entity names to test similarity (e.g. 'Acme LLC, Acme Corp').",
 )
-@click.option(
-    "--threshold", "-t", default=0.75, type=float, help="Similarity threshold for match."
-)
+@click.option("--threshold", "-t", default=0.75, type=float, help="Similarity threshold for match.")
 @click.option("--json-output", is_flag=True, help="Output matches in JSON format.")
 def entity_resolve(names: Optional[str], threshold: float, json_output: bool) -> None:
     """Disambiguate corporate aliases and identify potential entity duplicates."""
@@ -581,14 +570,8 @@ def export_graph(file_path: str, format: str, output: Optional[str]) -> None:
         res = {
             "node_count": graph.node_count,
             "edge_count": graph.edge_count,
-            "nodes": [
-                {"id": n, "data": graph.graph.nodes[n]}
-                for n in graph.graph.nodes()
-            ],
-            "edges": [
-                {"u": u, "v": v, "data": d}
-                for u, v, d in graph.graph.edges(data=True)
-            ],
+            "nodes": [{"id": n, "data": graph.graph.nodes[n]} for n in graph.graph.nodes()],
+            "edges": [{"u": u, "v": v, "data": d} for u, v, d in graph.graph.edges(data=True)],
         }
 
     out_str = json.dumps(res, indent=2, default=str)

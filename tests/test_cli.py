@@ -418,7 +418,9 @@ def test_cli_entity_resolve_json(cli_runner: CliRunner) -> None:
     assert matches[0]["similarity_score"] >= 0.6
 
 
-def test_cli_export_graph_json(cli_runner: CliRunner, sample_deeds_json: Path, tmp_path: Path) -> None:
+def test_cli_export_graph_json(
+    cli_runner: CliRunner, sample_deeds_json: Path, tmp_path: Path
+) -> None:
     out_file = tmp_path / "export.json"
     result = cli_runner.invoke(
         cli.cli,

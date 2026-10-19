@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class PropertyType(str, Enum):
     """Commercial real estate property classification."""
+
     OFFICE = "office"
     RETAIL = "retail"
     MULTIFAMILY = "multifamily"
@@ -21,6 +22,7 @@ class PropertyType(str, Enum):
 
 class DocumentType(str, Enum):
     """Common real property recording instruments."""
+
     WARRANTY_DEED = "Warranty Deed"
     SPECIAL_WARRANTY_DEED = "Special Warranty Deed"
     QUITCLAIM_DEED = "Quitclaim Deed"
@@ -31,6 +33,7 @@ class DocumentType(str, Enum):
 
 class EncumbranceType(str, Enum):
     """Common real property encumbrance and lien classifications."""
+
     FIRST_MORTGAGE = "First Mortgage"
     SECOND_MORTGAGE = "Second Mortgage"
     MEZZANINE_LOAN = "Mezzanine Loan"
@@ -43,6 +46,7 @@ class EncumbranceType(str, Enum):
 
 class SECFilingType(str, Enum):
     """SEC EDGAR corporate filing classifications."""
+
     FORM_10K = "10-K"
     FORM_10Q = "10-Q"
     FORM_8K = "8-K"
@@ -50,6 +54,7 @@ class SECFilingType(str, Enum):
 
 class ScenarioType(str, Enum):
     """DCF financial projection case types."""
+
     BASE = "Base"
     BULL = "Bull"
     BEAR = "Bear"
@@ -57,6 +62,7 @@ class ScenarioType(str, Enum):
 
 class RiskTier(str, Enum):
     """Geospatial and zoning hazard tiering."""
+
     LOW = "low"
     MODERATE = "moderate"
     HIGH = "high"
@@ -65,6 +71,7 @@ class RiskTier(str, Enum):
 
 class PropertyParcel(BaseModel):
     """Municipal parcel record with architectural & zoning attributes."""
+
     apn: str = Field(..., min_length=1, description="Assessor Parcel Number")
     address: str = Field(..., min_length=1)
     city: str = Field(..., min_length=1)
@@ -80,6 +87,7 @@ class PropertyParcel(BaseModel):
 
 class DeedRecord(BaseModel):
     """Municipal deed transfer record representing ownership transition."""
+
     deed_id: str = Field(..., min_length=1)
     parcel_id: str = Field(..., min_length=1)
     grantor: str = Field(..., min_length=1, description="Seller or transferring entity")
@@ -92,6 +100,7 @@ class DeedRecord(BaseModel):
 
 class EncumbranceRecord(BaseModel):
     """Real estate lien, mortgage, or deed of trust encumbrance."""
+
     encumbrance_id: str = Field(..., min_length=1)
     parcel_id: str = Field(..., min_length=1)
     encumbrance_type: EncumbranceType | str
@@ -103,6 +112,7 @@ class EncumbranceRecord(BaseModel):
 
 class SECFilingRecord(BaseModel):
     """SEC EDGAR filing disclosure relevant to commercial property holding."""
+
     accession_number: str = Field(..., min_length=1)
     cik: str = Field(..., min_length=1)
     company_name: str = Field(..., min_length=1)
@@ -116,6 +126,7 @@ class SECFilingRecord(BaseModel):
 
 class NodeType(str, Enum):
     """Knowledge graph node classification."""
+
     PROPERTY = "property"
     ENTITY = "entity"
     DEED = "deed"
@@ -126,6 +137,7 @@ class NodeType(str, Enum):
 
 class GraphNode(BaseModel):
     """Entity or event vertex in the temporal knowledge multigraph."""
+
     node_id: str = Field(..., min_length=1)
     node_type: NodeType
     label: str
@@ -142,6 +154,7 @@ class GraphNode(BaseModel):
 
 class EdgeType(str, Enum):
     """Temporal and structural relationships in property graph."""
+
     OWNS = "owns"
     TRANSFERRED_TO = "transferred_to"
     FINANCED_BY = "financed_by"
@@ -152,6 +165,7 @@ class EdgeType(str, Enum):
 
 class GraphEdge(BaseModel):
     """Directed edge capturing relational transitions and dates."""
+
     source_id: str = Field(..., min_length=1)
     target_id: str = Field(..., min_length=1)
     edge_type: EdgeType
@@ -161,6 +175,7 @@ class GraphEdge(BaseModel):
 
 class DCFScenario(BaseModel):
     """Discounted Cash Flow modeling scenario parameters."""
+
     scenario_name: str = ScenarioType.BASE.value
     discount_rate: float = Field(0.08, ge=0.0, le=1.0)
     exit_cap_rate: float = Field(0.065, gt=0.0, le=1.0)
@@ -172,6 +187,7 @@ class DCFScenario(BaseModel):
 
 class CashFlowYear(BaseModel):
     """Annual underwriting cash flow snapshot."""
+
     year: int = Field(..., ge=1)
     gross_revenue: float = Field(ge=0.0)
     operating_expenses: float = Field(ge=0.0)
@@ -182,6 +198,7 @@ class CashFlowYear(BaseModel):
 
 class ValuationOutput(BaseModel):
     """DCF Valuation summary results across holding horizon."""
+
     property_id: str = Field(..., min_length=1)
     scenario_name: str
     purchase_price: float = Field(ge=0.0)
@@ -194,6 +211,7 @@ class ValuationOutput(BaseModel):
 
 class GeospatialRiskMetrics(BaseModel):
     """Spatial and environmental hazard scores."""
+
     parcel_id: str = Field(..., min_length=1)
     flood_hazard_score: float = Field(0.0, ge=0.0, le=100.0)
     seismic_risk_score: float = Field(0.0, ge=0.0, le=100.0)
@@ -220,6 +238,7 @@ class GeospatialRiskMetrics(BaseModel):
 
 class UnderwritingSummary(BaseModel):
     """End-to-end CRE underwriting report synthesized by the swarm."""
+
     property_id: str = Field(..., min_length=1)
     parcel: PropertyParcel
     scenarios: Dict[str, ValuationOutput]

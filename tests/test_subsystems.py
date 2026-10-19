@@ -80,7 +80,7 @@ class TestStreamValidatorSubsystem:
         raw = {
             "raw_id": "RAW-002",
             "parcel_id": "APN-100-201",
-            "grantor=" : "Smith Family Trust",
+            "grantor=": "Smith Family Trust",
             "grantor": "Smith Family Trust",
             "grantee": "Smith Holdings LLC",
             "sale_date": "06/01/2026",
@@ -270,7 +270,9 @@ class TestEntityResolutionSubsystem:
     """Tests for EntityResolver and beneficial ownership tracing."""
 
     def test_string_similarity_helpers(self) -> None:
-        assert token_jaccard_similarity("Apex Capital Partners", "Apex Capital Partners LLC") >= 0.75
+        assert (
+            token_jaccard_similarity("Apex Capital Partners", "Apex Capital Partners LLC") >= 0.75
+        )
         assert character_ngram_similarity("Blackstone", "Blackstone Group") >= 0.60
         assert composite_entity_similarity("Prologis Trust Inc", "Prologis Trust REIT") >= 0.80
 
@@ -315,14 +317,19 @@ class TestEntityResolutionSubsystem:
         assert dups[0]["match_reason"] == "MATCHING_CIK"
 
         # Merge e2 into e1
-        merged = resolver.merge_entities(graph, "entity:starwood_capital_llc", "entity:starwood_capital_inc")
+        merged = resolver.merge_entities(
+            graph, "entity:starwood_capital_llc", "entity:starwood_capital_inc"
+        )
         assert merged is True
         assert not graph.graph.has_node("entity:starwood_capital_inc")
         assert graph.graph.has_node("entity:starwood_capital_llc")
 
         # Verify e1 now owns APN-001
         out_edges = list(graph.graph.out_edges("entity:starwood_capital_llc", data=True))
-        assert any(target == "APN-001" and d.get("edge_type") == EdgeType.OWNS.value for _, target, d in out_edges)
+        assert any(
+            target == "APN-001" and d.get("edge_type") == EdgeType.OWNS.value
+            for _, target, d in out_edges
+        )
 
         # Verify merged attributes
         attrs = graph.graph.nodes["entity:starwood_capital_llc"]["attributes"]
@@ -347,8 +354,12 @@ class TestEntityResolutionSubsystem:
         graph.add_node(n3)
 
         # n2 owns n1, n3 owns n2
-        graph.add_edge(GraphEdge(source_id="ent:hold_co", target_id="ent:op_co", edge_type=EdgeType.OWNS))
-        graph.add_edge(GraphEdge(source_id="ent:parent", target_id="ent:hold_co", edge_type=EdgeType.OWNS))
+        graph.add_edge(
+            GraphEdge(source_id="ent:hold_co", target_id="ent:op_co", edge_type=EdgeType.OWNS)
+        )
+        graph.add_edge(
+            GraphEdge(source_id="ent:parent", target_id="ent:hold_co", edge_type=EdgeType.OWNS)
+        )
 
         ubos = resolver.trace_ultimate_beneficial_owners(graph, "ent:op_co")
         assert len(ubos) == 2
@@ -377,10 +388,24 @@ class TestEncumbranceSubsystem:
         graph = TemporalPropGraph()
         apn = "APN-WATERFALL-01"
 
-        graph.add_node(GraphNode(node_id=apn, node_type=NodeType.PROPERTY, label="Commercial Complex"))
-        graph.add_node(GraphNode(node_id="lender:city_tax", node_type=NodeType.LENDER, label="County Tax Collector"))
-        graph.add_node(GraphNode(node_id="lender:first_bank", node_type=NodeType.LENDER, label="First National Bank"))
-        graph.add_node(GraphNode(node_id="lender:mezz_cap", node_type=NodeType.LENDER, label="Mezz Capital LLC"))
+        graph.add_node(
+            GraphNode(node_id=apn, node_type=NodeType.PROPERTY, label="Commercial Complex")
+        )
+        graph.add_node(
+            GraphNode(
+                node_id="lender:city_tax", node_type=NodeType.LENDER, label="County Tax Collector"
+            )
+        )
+        graph.add_node(
+            GraphNode(
+                node_id="lender:first_bank", node_type=NodeType.LENDER, label="First National Bank"
+            )
+        )
+        graph.add_node(
+            GraphNode(
+                node_id="lender:mezz_cap", node_type=NodeType.LENDER, label="Mezz Capital LLC"
+            )
+        )
 
         # Add encumbrances:
         # 1. Tax lien: $200,000
@@ -415,7 +440,9 @@ class TestEncumbranceSubsystem:
         )
 
         # Property valued at $9,000,000 (total debt is $10.2M -> underwater)
-        res = analyzer.analyze_parcel_encumbrance_waterfall(graph, apn, property_valuation=9_000_000.0)
+        res = analyzer.analyze_parcel_encumbrance_waterfall(
+            graph, apn, property_valuation=9_000_000.0
+        )
         assert res["total_debt"] == 10_200_000.0
         assert res["has_senior_tax_lien"] is True
         assert res["overall_ltv"] == round(10_200_000.0 / 9_000_000.0, 4)
@@ -445,7 +472,9 @@ class TestEncumbranceSubsystem:
 
         graph.add_node(GraphNode(node_id=p1, node_type=NodeType.PROPERTY, label="Site A"))
         graph.add_node(GraphNode(node_id=p2, node_type=NodeType.PROPERTY, label="Site B"))
-        graph.add_node(GraphNode(node_id=lender, node_type=NodeType.LENDER, label="Mega Credit Corp"))
+        graph.add_node(
+            GraphNode(node_id=lender, node_type=NodeType.LENDER, label="Mega Credit Corp")
+        )
 
         # Blanket loan of $15M encumbering both parcels
         graph.add_edge(
@@ -522,7 +551,9 @@ class TestSpatialContiguitySubsystem:
 
         # Two neighboring parcels owned by the same entity
         owner_id = "entity:harbor_holdings_llc"
-        graph.add_node(GraphNode(node_id=owner_id, node_type=NodeType.ENTITY, label="Harbor Holdings LLC"))
+        graph.add_node(
+            GraphNode(node_id=owner_id, node_type=NodeType.ENTITY, label="Harbor Holdings LLC")
+        )
 
         p1_data = PropertyParcel(
             apn="APN-NEIGHBOR-1",
@@ -554,8 +585,12 @@ class TestSpatialContiguitySubsystem:
         graph.add_property(p2_data)
 
         # Connect owner to both
-        graph.add_edge(GraphEdge(source_id=owner_id, target_id="APN-NEIGHBOR-1", edge_type=EdgeType.OWNS))
-        graph.add_edge(GraphEdge(source_id=owner_id, target_id="APN-NEIGHBOR-2", edge_type=EdgeType.OWNS))
+        graph.add_edge(
+            GraphEdge(source_id=owner_id, target_id="APN-NEIGHBOR-1", edge_type=EdgeType.OWNS)
+        )
+        graph.add_edge(
+            GraphEdge(source_id=owner_id, target_id="APN-NEIGHBOR-2", edge_type=EdgeType.OWNS)
+        )
 
         inferred = engine.infer_spatial_adjacencies(graph, max_distance_meters=150.0)
         assert inferred == 1
@@ -574,6 +609,7 @@ class TestMCPServerSubsystemTools:
 
     def test_mcp_server_subsystem_tools_registered(self) -> None:
         import asyncio
+
         server = create_mcp_server()
         assert server.name == "propgraph-mcp"
         tools = asyncio.run(server.list_tools())
@@ -586,6 +622,7 @@ class TestMCPServerSubsystemTools:
 
     def test_mcp_server_validate_deed_stream_invocation(self) -> None:
         import asyncio
+
         server = create_mcp_server()
         res = asyncio.run(
             server.call_tool(
@@ -611,6 +648,7 @@ class TestMCPServerSubsystemTools:
 
     def test_mcp_server_analyze_spatial_assemblage_invocation(self) -> None:
         import asyncio
+
         server = create_mcp_server()
         res = asyncio.run(
             server.call_tool(

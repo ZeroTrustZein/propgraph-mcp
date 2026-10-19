@@ -58,9 +58,7 @@ class ValidationBatchResult(BaseModel):
     total_dollar_volume: float = 0.0
     arms_length_count: int = 0
     quarantine_breakdown: Dict[str, int] = Field(default_factory=dict)
-    processed_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    processed_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @property
     def total_processed(self) -> int:
@@ -212,11 +210,7 @@ WHERE grantor IS NOT NULL AND TRIM(grantor) <> ''
         self, record: RawDeedRecord | Dict[str, Any]
     ) -> Tuple[Optional[CleanDeedRecord], Optional[QuarantineRecord]]:
         """Validate single raw record into either clean or quarantined record."""
-        payload = (
-            record.model_dump()
-            if isinstance(record, RawDeedRecord)
-            else dict(record)
-        )
+        payload = record.model_dump() if isinstance(record, RawDeedRecord) else dict(record)
         raw_id = str(payload.get("raw_id") or payload.get("deed_id") or "")
         parcel_id = str(payload.get("parcel_id") or "").strip()
         grantor = str(payload.get("grantor") or "").strip()

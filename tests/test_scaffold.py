@@ -48,7 +48,17 @@ def test_cli_underwrite(cli_runner: CliRunner) -> None:
     """Verify underwrite CLI command runs multi-scenario DCF."""
     result = cli_runner.invoke(
         cli.cli,
-        ["underwrite", "--apn", "APN-TEST-1", "--price", "5000000", "--revenue", "600000", "--expenses", "200000"],
+        [
+            "underwrite",
+            "--apn",
+            "APN-TEST-1",
+            "--price",
+            "5000000",
+            "--revenue",
+            "600000",
+            "--expenses",
+            "200000",
+        ],
     )
     assert result.exit_code == 0
     assert "CRE DCF Underwriting Results: APN-TEST-1" in result.output

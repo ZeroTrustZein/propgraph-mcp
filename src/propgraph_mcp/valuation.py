@@ -7,7 +7,9 @@ from typing import Any, Dict, List, Optional
 from propgraph_mcp.types import CashFlowYear, DCFScenario, ValuationOutput
 
 
-def calculate_irr(cash_flows: List[float], guess: float = 0.1, max_iter: int = 100, tol: float = 1e-6) -> float:
+def calculate_irr(
+    cash_flows: List[float], guess: float = 0.1, max_iter: int = 100, tol: float = 1e-6
+) -> float:
     """Compute Internal Rate of Return using Newton-Raphson approximation with bisection fallback."""
     if not cash_flows or all(cf >= 0 for cf in cash_flows) or all(cf <= 0 for cf in cash_flows):
         return 0.0
@@ -112,9 +114,9 @@ class DCFValuationEngine:
         exp = initial_operating_expenses
 
         for t in range(1, scenario.holding_period_years + 1):
-            rev *= (1.0 + scenario.rent_growth_rate)
+            rev *= 1.0 + scenario.rent_growth_rate
             effective_gross_income = rev * (1.0 - scenario.vacancy_rate)
-            exp *= (1.0 + scenario.expense_growth_rate)
+            exp *= 1.0 + scenario.expense_growth_rate
             noi = effective_gross_income - exp
             net_cf = noi - debt_service_annual
 
@@ -131,17 +133,15 @@ class DCFValuationEngine:
             annual_cfs_for_irr.append(net_cf)
 
         # Terminal Year NOI for Exit Cap Rate
-        next_year_noi = (
-            rev * (1.0 + scenario.rent_growth_rate) * (1.0 - scenario.vacancy_rate)
-            - exp * (1.0 + scenario.expense_growth_rate)
-        )
+        next_year_noi = rev * (1.0 + scenario.rent_growth_rate) * (
+            1.0 - scenario.vacancy_rate
+        ) - exp * (1.0 + scenario.expense_growth_rate)
         terminal_value = next_year_noi / scenario.exit_cap_rate
         annual_cfs_for_irr[-1] += terminal_value
 
         # NPV calculation
         npv = sum(
-            cf / ((1.0 + scenario.discount_rate) ** t)
-            for t, cf in enumerate(annual_cfs_for_irr)
+            cf / ((1.0 + scenario.discount_rate) ** t) for t, cf in enumerate(annual_cfs_for_irr)
         )
 
         # IRR calculation
@@ -245,9 +245,7 @@ class DCFValuationEngine:
             if annual_debt_service > 0
             else 0.0
         )
-        debt_yield = (
-            round(net_operating_income_y1 / loan_amount, 4) if loan_amount > 0 else 0.0
-        )
+        debt_yield = round(net_operating_income_y1 / loan_amount, 4) if loan_amount > 0 else 0.0
         compliant = bool(dscr >= 1.25 and ltv <= 0.75)
 
         return {
@@ -275,9 +273,7 @@ class DCFValuationEngine:
             return 0.0
 
         net_terminal_proceeds = max(0.0, terminal_value - remaining_loan_balance)
-        total_cash_distributed = (
-            sum(cf.net_cash_flow for cf in cash_flows) + net_terminal_proceeds
-        )
+        total_cash_distributed = sum(cf.net_cash_flow for cf in cash_flows) + net_terminal_proceeds
         return round(total_cash_distributed / initial_equity, 3)
 
     def calculate_breakeven_occupancy(

@@ -115,9 +115,7 @@ class EntityResolver:
 
         return duplicates
 
-    def merge_entities(
-        self, graph: TemporalPropGraph, primary_id: str, duplicate_id: str
-    ) -> bool:
+    def merge_entities(self, graph: TemporalPropGraph, primary_id: str, duplicate_id: str) -> bool:
         """Merge duplicate entity into primary entity, repointing all edges."""
         if primary_id == duplicate_id:
             return False

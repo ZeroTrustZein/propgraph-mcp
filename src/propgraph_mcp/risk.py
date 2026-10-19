@@ -60,7 +60,10 @@ class GeospatialRiskEngine:
 
         # Zoning compliance risk: 0 is completely compliant, 100 is non-compliant
         zoning_score = 10.0
-        if parcel.zoning_code.startswith("R-") and parcel.property_type.value in ["office", "industrial"]:
+        if parcel.zoning_code.startswith("R-") and parcel.property_type.value in [
+            "office",
+            "industrial",
+        ]:
             zoning_score = 90.0  # High zoning variance risk
         elif parcel.zoning_code.startswith("M-") and parcel.property_type.value == "retail":
             zoning_score = 60.0
@@ -115,7 +118,9 @@ class GeospatialRiskEngine:
         lot_area_sqft: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Evaluate architectural capacity against municipal zoning FAR and height constraints."""
-        lot_area = lot_area_sqft if lot_area_sqft and lot_area_sqft > 0 else parcel.square_feet * 0.5
+        lot_area = (
+            lot_area_sqft if lot_area_sqft and lot_area_sqft > 0 else parcel.square_feet * 0.5
+        )
         current_far = round(parcel.square_feet / lot_area, 2)
 
         code = parcel.zoning_code.upper()
@@ -190,7 +195,9 @@ class GeospatialRiskEngine:
         projections = {}
         for y in [10, 20, 30]:
             if y <= horizon_years:
-                proj_score = min(100.0, round(baseline_climate * ((1.0 + annual_escalation_pct) ** y), 2))
+                proj_score = min(
+                    100.0, round(baseline_climate * ((1.0 + annual_escalation_pct) ** y), 2)
+                )
                 projections[f"year_{y}"] = proj_score
 
         # Insurance premium inflation multiplier over the period
