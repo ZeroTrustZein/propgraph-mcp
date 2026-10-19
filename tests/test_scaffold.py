@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from click.testing import CliRunner
 
 import propgraph_mcp
@@ -146,3 +148,19 @@ def test_mcp_server_initialization() -> None:
     """Verify MCP Server factory registers tools and sets name."""
     server = create_mcp_server("test-propgraph")
     assert server.name == "test-propgraph"
+
+
+def test_ci_workflow_configuration() -> None:
+    """Verify GitHub Actions CI workflow configuration exists and contains required jobs."""
+    workflow_path = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "ci.yml"
+    assert workflow_path.is_file(), f"CI workflow missing at {workflow_path}"
+    content = workflow_path.read_text(encoding="utf-8")
+    assert "name: CI" in content
+    assert "runs-on: ubuntu-latest" in content
+    assert "ruff check" in content
+    assert "ruff format --check" in content
+    assert "pytest" in content
+    assert "propgraph --help" in content
+    assert "propgraph-mcp --help" in content
+    assert "python -m build" in content
+    assert "twine check" in content
