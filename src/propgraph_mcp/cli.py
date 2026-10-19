@@ -233,25 +233,43 @@ def chain_of_title(apn: str, file_path: Optional[str], json_output: bool) -> Non
     audit = graph.verify_chain_of_title(apn)
     timeline = graph.get_ownership_timeline(apn)
 
+    # Collect deeds associated with this parcel
+    deeds: List[Dict[str, Any]] = []
+    from propgraph_mcp.types import NodeType
+
+    for _, data in graph.graph.nodes(data=True):
+        if (
+            data.get("node_type") == NodeType.DEED.value
+            and data.get("attributes", {}).get("parcel_id") == apn
+        ):
+            deeds.append(data.get("attributes", {}))
+    deeds.sort(key=lambda d: str(d.get("transfer_date", "")))
+
     if json_output:
-        res = {"audit": audit, "timeline": timeline}
+        res = {"audit": audit, "timeline": timeline, "deeds": deeds}
         click.echo(json.dumps(res, indent=2, default=str))
         return
 
     table = Table(title=f"Chain of Title Audit: {apn}")
     table.add_column("Date", style="cyan")
-    table.add_column("Grantor", style="white")
-    table.add_column("Grantee", style="white")
+    table.add_column("Grantor", style="white", no_wrap=True)
+    table.add_column("Grantee", style="white", no_wrap=True)
     table.add_column("Document", style="yellow")
     table.add_column("Price ($)", style="green")
 
-    for rec in timeline:
+    display_records = deeds if deeds else timeline
+    for rec in display_records:
+        t_date = rec.get("transfer_date") or rec.get("effective_date") or ""
+        grantor = rec.get("grantor") or ""
+        grantee = rec.get("grantee") or rec.get("owner_name") or ""
+        doc = rec.get("document_type") or "Deed"
+        price = rec.get("sale_price") or 0.0
         table.add_row(
-            str(rec.get("effective_date", "")),
-            str(rec.get("grantor", "")),
-            str(rec.get("grantee", "")),
-            str(rec.get("document_type", "")),
-            f"${rec.get('sale_price', 0.0):,.0f}",
+            str(t_date),
+            str(grantor),
+            str(grantee),
+            str(doc),
+            f"${float(price):,.0f}",
         )
     console.print(table)
     is_valid_str = "[green]Valid unbroken chain[/green]" if audit.get("is_valid") else "[red]Break detected[/red]"

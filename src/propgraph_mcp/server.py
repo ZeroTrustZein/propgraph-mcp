@@ -340,54 +340,77 @@ def create_mcp_server(name: str = "propgraph-mcp") -> MCPServer:
     @server.tool()
     def get_chain_of_title(apn: str) -> Dict[str, Any]:
         """Audit chain of title for breaks in ownership or quitclaim deed flags."""
-        chain = graph.get_chain_of_title(apn)
-        has_break = any(record.get("is_break_in_title", False) for record in chain)
-        quitclaims = [
-            record for record in chain if "Quitclaim" in record.get("document_type", "")
-        ]
+        audit = graph.verify_chain_of_title(apn)
+        timeline = graph.get_ownership_timeline(apn)
         return {
             "apn": apn,
-            "chain_length": len(chain),
-            "has_break_in_title": has_break,
-            "quitclaim_count": len(quitclaims),
-            "chain_records": chain,
+            "chain_audit": audit,
+            "timeline": timeline,
+            "is_valid": audit.get("is_valid", False),
+            "deed_count": audit.get("deed_count", 0),
         }
 
     @server.tool()
     def evaluate_zoning_capacity(
         parcel_id: str,
-        lot_size_sqft: float,
-        building_footprint_sqft: float,
-        total_building_sqft: float,
-        stories: int,
-        building_height_ft: float,
         zoning_code: str = "C-1",
+        square_feet: float = 50_000.0,
+        lot_size_sqft: Optional[float] = None,
+        total_building_sqft: Optional[float] = None,
+        building_footprint_sqft: Optional[float] = None,
+        building_height_ft: Optional[float] = None,
+        stories: int = 1,
         parking_spaces: int = 50,
     ) -> Dict[str, Any]:
         """Evaluate zoning capacity, FAR utilization, and variance requirements."""
-        return risk_engine.evaluate_zoning_capacity(
-            parcel_id=parcel_id,
-            lot_size_sqft=lot_size_sqft,
-            building_footprint_sqft=building_footprint_sqft,
-            total_building_sqft=total_building_sqft,
-            stories=stories,
-            building_height_ft=building_height_ft,
+        sqft = total_building_sqft if total_building_sqft is not None else square_feet
+        parcel = PropertyParcel(
+            apn=parcel_id,
+            address="Zoning Analysis Subject",
+            city="Metropolis",
+            state="CA",
+            zip_code="90001",
+            property_type=PropertyType.OFFICE,
+            square_feet=sqft,
+            year_built=2000,
             zoning_code=zoning_code,
-            parking_spaces=parking_spaces,
         )
+        eval_result = risk_engine.evaluate_zoning_capacity(
+            parcel=parcel,
+            proposed_gross_floor_area=sqft,
+            proposed_height=building_height_ft,
+            lot_area_sqft=lot_size_sqft,
+        )
+        eval_result["is_compliant"] = not eval_result.get("variance_required", False)
+        return eval_result
 
     @server.tool()
     def project_climate_risk(
         apn: str,
-        horizon_year: int = 2050,
+        state: str = "FL",
+        horizon_years: int = 30,
+        horizon_year: Optional[int] = None,
         rcp_scenario: str = "RCP8.5",
     ) -> Dict[str, Any]:
         """Project multi-decade climate and physical risk multipliers."""
-        return risk_engine.project_climate_risk(
-            parcel_id=apn,
-            horizon_year=horizon_year,
-            rcp_scenario=rcp_scenario,
+        hy = horizon_year if horizon_year is not None else horizon_years
+        parcel = PropertyParcel(
+            apn=apn,
+            address="Climate Risk Subject",
+            city="Miami",
+            state=state,
+            zip_code="33101",
+            property_type=PropertyType.OFFICE,
+            square_feet=50_000.0,
+            year_built=2015,
         )
+        res = risk_engine.project_climate_risk(
+            parcel=parcel,
+            horizon_years=hy,
+        )
+        res["horizon_year"] = hy
+        res["rcp_scenario"] = rcp_scenario
+        return res
 
     @server.resource("graph://summary")
     def graph_topology_summary() -> str:
@@ -416,7 +439,17 @@ def create_mcp_server(name: str = "propgraph-mcp") -> MCPServer:
     @server.resource("property://{apn}/risk")
     def property_risk_resource(apn: str) -> str:
         """Read-only resource returning forward climate and geospatial risk projections."""
-        climate = risk_engine.project_climate_risk(apn)
+        parcel = PropertyParcel(
+            apn=apn,
+            address="Risk Subject",
+            city="City",
+            state="CA",
+            zip_code="90001",
+            property_type=PropertyType.OFFICE,
+            square_feet=50_000.0,
+            year_built=2000,
+        )
+        climate = risk_engine.project_climate_risk(parcel)
         return json.dumps({"apn": apn, "risk_projections": climate}, indent=2, default=str)
 
     @server.prompt("underwrite-property")

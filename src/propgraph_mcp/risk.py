@@ -165,6 +165,7 @@ class GeospatialRiskEngine:
             "max_height_ft": max_height,
             "proposed_height_ft": proposed_height,
             "height_compliant": height_compliant,
+            "is_compliant": not variance_required,
             "variance_required": variance_required,
             "entitlement_risk": entitlement_risk,
         }

@@ -24,7 +24,7 @@ def token_jaccard_similarity(str1: str, str2: str) -> float:
 
 def character_ngram_similarity(str1: str, str2: str, n: int = 3) -> float:
     """Compute n-gram Jaccard similarity over characters."""
-    s1, s2 = str1.lower().strip(), str2.lower().strip()
+    s1, s2 = re.sub(r"\s+", "", str1.lower()), re.sub(r"\s+", "", str2.lower())
     if s1 == s2:
         return 1.0
     if len(s1) < n or len(s2) < n:

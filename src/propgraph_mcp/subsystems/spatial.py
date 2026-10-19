@@ -122,6 +122,19 @@ class SpatialContiguityEngine:
                 if owner and lat is not None and lon is not None:
                     owner_parcels.setdefault(owner, []).append((node_id, lat, lon, sqft))
 
+        if not owner_parcels:
+            unowned: List[Tuple[str, float, float, float]] = []
+            for node_id, data in graph.graph.nodes(data=True):
+                if data.get("node_type") == NodeType.PROPERTY.value:
+                    attrs = data.get("attributes", {})
+                    lat = attrs.get("latitude")
+                    lon = attrs.get("longitude")
+                    sqft = float(attrs.get("square_feet") or 0.0)
+                    if lat is not None and lon is not None:
+                        unowned.append((node_id, lat, lon, sqft))
+            if len(unowned) >= 2:
+                owner_parcels["common_assemblage"] = unowned
+
         assemblages: List[Dict[str, Any]] = []
 
         for owner, props in owner_parcels.items():
